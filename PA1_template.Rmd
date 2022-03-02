@@ -1,5 +1,6 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "Bruce R"
 output: 
   html_document:
     keep_md: true
@@ -19,21 +20,27 @@ library(lubridate)
 df <- read_csv("activity.csv", show_col_types = FALSE)
 # convert date to date format
 df$date <- ymd(df$date)
+# break apart interval code (hourMinute) and create a Time column.
 df <- df %>% 
   mutate(Hour = interval %/% 100,
          Minutes = interval %% 100,
-         Time = hms(hours = Hour, minutes = Minutes)
+         Time = hms::hms(hours = Hour, minutes = Minutes)
          )
+
 ```
 
+Take a peak at data.
+
+```{r}
+tail(df)
+```
 
 
 ## What is mean total number of steps taken per day?
 
 ```{r}
-# summarize data by date, filtering out NAs in steps
+# summarize data by date, ignorning NAs in steps
 byDateSummary <- df %>% 
-  filter(!is.na(steps)) %>% 
   group_by(date) %>% 
   summarize(stepsPerDay = sum(steps, na.rm = TRUE))
 
@@ -44,10 +51,10 @@ medianStepsPerDay <- as.character(median(byDateSummary$stepsPerDay))
 Histogram for steps each day.
 
 ```{r}
-hist(byDateSummary$stepsPerDay, 
-     breaks = 10,
-     xlab = "Number of Steps per Day", 
-     main = "Distribution of Number of Steps per Day")
+ggplot(byDateSummary, aes(x = stepsPerDay)) +
+  geom_histogram(binwidth = 1000, fill = "gray", color = "gray30", boundary = 0) +
+  labs(title = "Distribution of Number of Steps per Day",
+       x = "Number of Steps per Day")
 ```
 
 The mean number of steps per day is `r meanStepsPerDay`.  
@@ -55,28 +62,35 @@ The median number of steps per day is `r medianStepsPerDay`.
 
 ## What is the average daily activity pattern?
 
+We take the average steps for each 5-minute interval, removing the NAs from the data. 
+
 ```{r}
 by5minIntervalSummary <- df %>% 
   filter(!is.na(steps)) %>% 
-  group_by(interval) %>% 
-  summarize(stepsPerInterval = sum(steps, na.rm = TRUE))
+  group_by(Time) %>% 
+  summarize(stepsPerInterval = mean(steps, na.rm = TRUE))
 
-maxInterval <- by5minIntervalSummary$interval[which.max(by5minIntervalSummary$stepsPerInterval)]
+maxTime <- by5minIntervalSummary$Time[which.max(by5minIntervalSummary$stepsPerInterval)]
 
-hours <- maxInterval %/% 100
-minutes <- maxInterval %% 100
-clockTime <- paste0(hours, ":", minutes)
 ```
+
+**Note**: I've used the *Time* variable I created instead of *interval* since *interval* 
+introduces artificial space between intervals such as 855 and 900.
 
 ```{r}
-plot(by5minIntervalSummary$interval, by5minIntervalSummary$stepsPerInterval, 
-     type = "l",
-     xlab = "5-minute Interval",
-     ylab = "Average number of steps",
-     main = "Average Number of Steps per 5-minute Inteval")
+times <- hms(c("0:0:0", "4:0:0", "8:0:0", 
+               "12:0:0", "16:0:0", "20:0:0", "24:0:0" ))
+
+ggplot(by5minIntervalSummary, aes(x = Time, y = stepsPerInterval)) +
+  geom_line() +
+  scale_x_time(breaks = times) +
+  labs(title = "Average Number of Steps per 5-minute Inteval",
+       x = "5-minute Interval (Time)",
+       y = "Average number of steps")
+
 ```
 
-The 5-minute interval with the maximum number of steps, on average, is `r maxInterval`.  This corresponds to the interval starting at time `r clockTime`.
+The 5-minute interval with the maximum number of steps, on average, starts at the time `r maxTime`.  
 
 ## Imputing missing values
 
@@ -87,12 +101,75 @@ summary(df)
 The summary of the data shows that NAs are only in *steps* data and that there
 are 2304 NAs in total.
 
-We'll replace these with the average for the 5-minute interval.
+We'll replace these with the average for the corresponding 5-minute interval.
 
 ```{r}
+# join with average per 5-minute interval
 df_complete <- df %>% 
-  mutate(steps2 = if_else(!is.na(steps), steps, by5minIntervalSummary$stepsPerInterval[(interval+5)%/%5]))
+  left_join(by5minIntervalSummary, by = "Time")
+# if steps is NA, replace with the average for that time period
+df_complete <- df_complete %>% 
+  mutate(steps = if_else(is.na(steps), stepsPerInterval, steps))
+```
+
+We can see that there no more NAs.
+
+```{r}
+summary(df_complete)
+```
+
+Summarize by date again with NAs replaced
+
+```{r}
+byDateSummary_complete <- df_complete %>% 
+  group_by(date) %>% 
+  summarize(stepsPerDay = sum(steps, na.rm = TRUE))
+
+meanStepsPerDay_complete <- as.character(round(mean(byDateSummary_complete$stepsPerDay),2))
+medianStepsPerDay_complete <- as.character(round(median(byDateSummary_complete$stepsPerDay)))
+
 ```
 
 
+```{r}
+ggplot(byDateSummary_complete, aes(x = stepsPerDay)) +
+  geom_histogram(binwidth = 1000, fill = "gray", color = "gray30", boundary = 0) +
+  labs(title = "Distribution of Number of Steps per Day -- NAs replaced",
+       x = "Number of Steps per Day")
+```
+
+The mean number of steps per day is `r meanStepsPerDay_complete`.  
+The median number of steps per day is `r medianStepsPerDay_complete`.
+
+The mean has increased and many days in the first column are gone.
+
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r}
+# add column to signify weekend or weekday -- Sunday = 1, Monday = 2, etc.
+df_complete <- df_complete %>% 
+  mutate(dayType = if_else(wday(date) == 1 | wday(date) == 7,
+                           "Weekend",
+                           "Weekday"
+                           )
+         )
+
+byDayTypeSummary_complete <- df_complete %>% 
+  group_by(dayType, Time) %>% 
+  summarize(stepsPerInterval = mean(steps, na.rm = TRUE), .groups = 'drop')
+```
+
+```{r}
+times <- hms(c("0:0:0", "4:0:0", "8:0:0", 
+               "12:0:0", "16:0:0", "20:0:0", "24:0:0" ))
+ggplot(byDayTypeSummary_complete, aes(x = Time, y = stepsPerInterval)) +
+  geom_line() +
+  scale_x_time(breaks = times) +
+  facet_grid(rows = vars(dayType)) +
+  labs(title = "Average Number of Steps per 5-minute Inteval",
+       x = "5-minute Interval (Time)",
+       y = "Average number of steps")
+```
+ 
+ There seems to be a shift to later hours on the weekend and also generally more
+ activity in the afternoon on weekends, less in the morning.
