@@ -16,6 +16,9 @@ library(lubridate)
 
 ## Loading and preprocessing the data
 
+The data is loaded and we'll make sure date is a date object so we can determine
+the day of the week. Also, we'll use the interval code to make a corresponding time object.
+
 
 ```r
 df <- read_csv("activity.csv", show_col_types = FALSE)
@@ -76,6 +79,8 @@ ggplot(byDateSummary, aes(x = stepsPerDay)) +
 
 The mean number of steps per day is 9354.23.  
 The median number of steps per day is 10395.
+
+The large first bar seems to come from the NAs.
 
 ## What is the average daily activity pattern?
 
